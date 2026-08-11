@@ -1,0 +1,57 @@
+/**
+ * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
+ * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
+ */
+//@cliArgs --device "MSPM0G351X" --package "LQFP-100(PZ)" --part "Default"
+//@v2CliArgs --device "MSPM0G3519" --package "LQFP-100(PZ)"
+// @cliArgs --board /ti/boards/LP_MSPM0G3519 --rtos nortos
+
+/**
+ * Import the modules used in this configuration.
+ */
+const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
+
+/**
+ * Write custom configuration values to the imported modules.
+ */
+
+const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
+
+const LCD_DATA = GPIO.addInstance();
+const LCD_CTRL = GPIO.addInstance();
+
+/*
+ * LCD 16-bit 8080 data bus.  Keeping PB0..PB15 contiguous allows a complete
+ * pixel to be placed on the bus with one GPIO port write.
+ */
+LCD_DATA.$name = "LCD_DATA";
+LCD_DATA.associatedPins.create(16);
+for (let i = 0; i < 16; i++) {
+    LCD_DATA.associatedPins[i].$name = "D" + i;
+    LCD_DATA.associatedPins[i].assignedPort = "PORTB";
+    LCD_DATA.associatedPins[i].assignedPin = String(i);
+    LCD_DATA.associatedPins[i].initialValue = "CLEARED";
+    LCD_DATA.associatedPins[i].pin.$suggestSolution = "PB" + i;
+}
+
+/* LCD control signals: WR, RD, CS, RS/DC, reset and active-high backlight. */
+LCD_CTRL.$name = "LCD_CTRL";
+LCD_CTRL.associatedPins.create(6);
+const lcdCtrlNames = ["WR", "RD", "CS", "RS", "RST", "BL"];
+const lcdCtrlPins  = ["8",  "9",  "12", "13", "14",  "15"];
+for (let i = 0; i < lcdCtrlNames.length; i++) {
+    LCD_CTRL.associatedPins[i].$name = lcdCtrlNames[i];
+    LCD_CTRL.associatedPins[i].assignedPort = "PORTA";
+    LCD_CTRL.associatedPins[i].assignedPin = lcdCtrlPins[i];
+    LCD_CTRL.associatedPins[i].initialValue =
+        (lcdCtrlNames[i] == "BL") ? "CLEARED" : "SET";
+    LCD_CTRL.associatedPins[i].pin.$suggestSolution = "PA" + lcdCtrlPins[i];
+}
+
+SYSCTL.forceDefaultClkConfig = true;
+SYSCTL.clockTreeEn           = true;
+
+Board.peripheral.$suggestSolution = "DEBUGSS";
+Board.peripheral.swclkPin.$suggestSolution = "PA20";
+Board.peripheral.swdioPin.$suggestSolution = "PA19";

@@ -1,0 +1,20 @@
+# CCS编译输出
+Debug/
+Release/
+
+# 临时文件
+tmp/
+
+# CCS Theia本机配置
+.theia/
+
+# 通用编译产物
+*.o
+*.d
+*.out
+*.map
+*.xml
+
+# 系统文件
+Thumbs.db
+.DS_Store
