@@ -19,25 +19,42 @@ const GPIO4  = GPIO.addInstance();
 const PWM    = scripting.addModule("/ti/driverlib/PWM", {}, false);
 const PWM1   = PWM.addInstance();
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+const TIMER  = scripting.addModule("/ti/driverlib/TIMER", {}, false);
+const TIMER1 = TIMER.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
  */
+/*
+ * ADC0 四通道序列采样：每个 TIMG0 周期依次转换 PA27、PA26、PA25、PA24。
+ * FIFO 将两个 12 位结果打包为一个 32 位字，再由 DMA_CH0 搬入双缓冲区。
+ */
 ADC121.$name                             = "ADC_CAPTURE";
-ADC121.repeatMode                        = true;
+ADC121.repeatMode                        = false;
 ADC121.powerDownMode                     = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
-ADC121.sampleTime0                       = "62.5 ns";
+ADC121.samplingOperationMode             = "sequence";
+ADC121.endAdd                            = 3;
+ADC121.trigSrc                           = "DL_ADC12_TRIG_SRC_EVENT";
+ADC121.subChanID                         = 1;
+ADC121.sampleTime0                       = "250 ns";
+ADC121.adcMem0chansel                    = "DL_ADC12_INPUT_CHAN_0";
+ADC121.adcMem1chansel                    = "DL_ADC12_INPUT_CHAN_1";
+ADC121.adcMem2chansel                    = "DL_ADC12_INPUT_CHAN_2";
+ADC121.adcMem3chansel                    = "DL_ADC12_INPUT_CHAN_3";
 ADC121.configureDMA                      = true;
-ADC121.sampCnt                           = 1;
-ADC121.enabledDMATriggers                = ["DL_ADC12_DMA_MEM0_RESULT_LOADED"];
+ADC121.enableFIFO                        = true;
+ADC121.sampCnt                           = 2;
+ADC121.enabledDMATriggers                = ["DL_ADC12_DMA_MEM3_RESULT_LOADED"];
+ADC121.enabledInterrupts                 = ["DL_ADC12_INTERRUPT_DMA_DONE"];
 ADC121.peripheral.$assign                = "ADC0";
 ADC121.peripheral.adcPin0.$assign        = "PA27";
+ADC121.peripheral.adcPin1.$assign        = "PA26";
+ADC121.peripheral.adcPin2.$assign        = "PA25";
+ADC121.peripheral.adcPin3.$assign        = "PA24";
 ADC121.adcPin0Config.$name               = "ti_driverlib_gpio_GPIOPinGeneric0";
 ADC121.adcPin0Config.hideOutputInversion = scripting.forceWrite(false);
 ADC121.DMA_CHANNEL.$name                 = "ADC_DMA";
 ADC121.DMA_CHANNEL.addressMode           = "f2b";
-ADC121.DMA_CHANNEL.srcLength             = "HALF_WORD";
-ADC121.DMA_CHANNEL.dstLength             = "HALF_WORD";
 ADC121.DMA_CHANNEL.peripheral.$assign    = "DMA_CH0";
 
 const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
@@ -191,6 +208,14 @@ PWM1.PWM_CHANNEL_1.dutyCycle = 50;
 PWM1.PWM_CHANNEL_1.shadowUpdateMode = "ZERO_EVT";
 PWM1.ccp0PinConfig.$name     = "ti_driverlib_gpio_GPIOPinGeneric1";
 PWM1.ccp1PinConfig.$name     = "ti_driverlib_gpio_GPIOPinGeneric2";
+
+/* 硬件初始周期为 100 kframe/s；驱动启动时会按请求值重设 TIMG0。 */
+TIMER1.$name                       = "ADC_SAMPLE_TIMER";
+TIMER1.timerMode                   = "PERIODIC";
+TIMER1.timerPeriod                 = "10 us";
+TIMER1.event1PublisherChannel      = 1;
+TIMER1.event1ControllerInterruptEn = ["ZERO_EVENT"];
+TIMER1.peripheral.$assign          = "TIMG0";
 
 SYSCTL.forceDefaultClkConfig = true;
 SYSCTL.clockTreeEn           = true;

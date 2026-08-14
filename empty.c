@@ -32,37 +32,39 @@
 
 #include "ti_msp_dl_config.h"
 
-#include "Drivers/adc_capture.h"
+#include "Drivers/adc_multi.h"
 #include "Drivers/lcd_8080.h"
 #include "Drivers/lcd_panel.h"
 #include "Drivers/spwm.h"
-#include "Graphics/adc_visualization.h"
+#include "Graphics/adc_multi_visualization.h"
 
 int main(void)
 {
-    const uint16_t *samples;
+    const ADCMulti_Frame *frames;
+    uint16_t frameCount;
 
     /* 外设和驱动只需在上电后初始化一次。 */
     SYSCFG_DL_init();
     SPWM_init();
-    ADCCapture_init();
+    ADCMulti_init();
     LCDPanel_init();
     LCD8080_clear(LCD_COLOR_BLACK);
 
-    while (1) {
-        /* KEY1 is active-low because it uses an internal pull-up. */
-        if (DL_GPIO_readPins(KEYS_PORT, KEYS_KEY1_PIN) == 0U) {
-            LCD8080_clear(LCD_COLOR_RED);
-        } else {
-            LCD8080_clear(LCD_COLOR_BLACK);
-        }
+    /* 默认 10 kframe/s，便于边采集边刷新 LCD；需要时可提高到 100 k。 */
+    if (!ADCMulti_start(ADC_MULTI_DEFAULT_RATE_HZ)) {
+        ADCMultiVisualization_drawError("ADC START FAILED");
+    }
 
-        /* 每采集完一批4096点，就使用最新数据刷新屏幕上的数字。 */
-        if (ADCCapture_acquire(&samples)) {
-            ADCVisualization_drawData(
-                samples, ADC_CAPTURE_SAMPLE_COUNT);
-        } else {
-            ADCVisualization_drawData(0, 0U);
+    while (1) {
+        /*
+         * 非阻塞地取得已经采满的一块缓冲区。DMA 会同时写另一块，
+         * LCD 刷新结束后必须及时释放当前缓冲区。
+         */
+        if (ADCMulti_getReadyBuffer(&frames, &frameCount)) {
+            ADCMultiVisualization_draw(frames, frameCount,
+                ADCMulti_getActualFrameRate(),
+                ADCMulti_getOverrunCount());
+            ADCMulti_releaseBuffer(frames);
         }
     }
 }

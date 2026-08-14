@@ -11,6 +11,10 @@ The module includes:
 - pixel, rectangle, line and circle drawing
 - built-in ASCII font
 - UTF-8 Chinese software-font interface without a W25Q64 dependency
+- ADC0 four-channel timer-triggered sequence capture with DMA ping-pong buffers
+
+四通道 ADC0 的引脚、采样率和 API 说明见
+[docs/ADC四通道采集使用说明.md](docs/ADC四通道采集使用说明.md)。
 
 使用时先阅读 [LCD屏幕模块使用说明](docs/LCD屏幕模块使用说明.md)。更完整的
 英文 API 说明见 [docs/lcd_usage.md](docs/lcd_usage.md)。
