@@ -33,38 +33,293 @@
 #include "ti_msp_dl_config.h"
 
 #include "Drivers/adc_multi.h"
+#include "Drivers/adc1_fast.h"
+#include "Drivers/dac_output.h"
 #include "Drivers/lcd_8080.h"
 #include "Drivers/lcd_panel.h"
+#include "Drivers/pwm_output.h"
 #include "Drivers/spwm.h"
+#include "Algorithms/analysis_pipeline/signal_analyzer.h"
 #include "Graphics/adc_multi_visualization.h"
+#include "Graphics/lcd_text.h"
+
+/*
+ * 功能开关：需要某项功能时改为1，不需要时改为0。
+ * 被关闭功能的变量和处理代码不会参与编译，也不会占用SRAM。
+ */
+#ifndef ENABLE_LCD
+#define ENABLE_LCD                    (1)
+#endif
+#ifndef ENABLE_ADC0_MULTI
+#define ENABLE_ADC0_MULTI             (0)
+#endif
+#ifndef ENABLE_ADC1_FAST
+#define ENABLE_ADC1_FAST              (0)
+#endif
+#ifndef ENABLE_ADC1_ANALYZER
+#define ENABLE_ADC1_ANALYZER          (0)
+#endif
+#ifndef ENABLE_DAC_DC
+#define ENABLE_DAC_DC                 (0)
+#endif
+#ifndef ENABLE_DAC_WAVEFORM
+#define ENABLE_DAC_WAVEFORM           (0)
+#endif
+#ifndef ENABLE_FIXED_PWM_CH0
+#define ENABLE_FIXED_PWM_CH0          (1)
+#endif
+#ifndef ENABLE_FIXED_PWM_CH1
+#define ENABLE_FIXED_PWM_CH1          (0)
+#endif
+#ifndef ENABLE_SPWM_CH0
+#define ENABLE_SPWM_CH0               (0)
+#endif
+#ifndef ENABLE_SPWM_CH1
+#define ENABLE_SPWM_CH1               (0)
+#endif
+
+/* 各模块常用参数集中放在这里，换题时不必进入驱动内部修改。 */
+#define ADC0_FRAME_RATE_HZ            (10000U)
+/* ADC1自由运行采样率必须实测标定；此处1 MHz只是分析模板的占位值。 */
+#define ADC1_ANALYZER_SAMPLE_RATE_HZ  (1000000U)
+#define DAC_DC_OUTPUT_CODE            (3072U)
+#define FIXED_PWM_CH0_DUTY_PERMILLE   (300U)
+#define FIXED_PWM_CH1_DUTY_PERMILLE   (600U)
+
+/* 同一个通道不能同时由固定PWM和SPWM控制。 */
+#if ENABLE_FIXED_PWM_CH0 && ENABLE_SPWM_CH0
+#error "PA0 cannot output fixed PWM and SPWM at the same time"
+#endif
+#if ENABLE_FIXED_PWM_CH1 && ENABLE_SPWM_CH1
+#error "PA1 cannot output fixed PWM and SPWM at the same time"
+#endif
+#if ENABLE_DAC_DC && ENABLE_DAC_WAVEFORM
+#error "DAC0 cannot output DC and DMA waveform at the same time"
+#endif
+#if ENABLE_ADC1_ANALYZER && !ENABLE_ADC1_FAST
+#error "SignalAnalyzer input is enabled but ADC1_FAST is disabled"
+#endif
+
+#define ENABLE_ANY_SPWM  (ENABLE_SPWM_CH0 || ENABLE_SPWM_CH1)
+#define ENABLE_ANY_FIXED_PWM \
+    (ENABLE_FIXED_PWM_CH0 || ENABLE_FIXED_PWM_CH1)
+
+#if ENABLE_ADC0_MULTI
+/* DMA缓冲区由驱动持有；这里保存当前只读指针以及最近一帧的安全副本。 */
+static const ADCMulti_Frame *gADC0Frames;
+static uint16_t gADC0FrameCount;
+static ADCMulti_Frame gADC0LatestFrame;
+static bool gADC0Started;
+#endif
+
+#if ENABLE_ADC1_FAST
+/* 指针只在取得缓冲区到释放缓冲区之间有效，不能跨循环长期保存。 */
+static const uint16_t *gADC1Samples;
+static uint16_t gADC1SampleCount;
+static volatile uint16_t gADC1LatestSample;
+static bool gADC1Started;
+#endif
+
+#if ENABLE_ADC1_ANALYZER
+/* 工作区约占十余KB，必须使用static，不能放到主函数栈中。 */
+static SignalAnalyzer gSignalAnalyzer;
+static SignalAnalyzer_Workspace gSignalAnalyzerWorkspace;
+static SignalAnalyzer_Result gSignalAnalyzerResult;
+static SignalAnalyzer_Status gSignalAnalyzerStatus;
+static bool gSignalAnalyzerReady;
+
+static bool Main_initSignalAnalyzer(void)
+{
+    SignalAnalyzer_Config config;
+
+    if (!SignalAnalyzer_getDefaultConfig(&config,
+            ADC1_ANALYZER_SAMPLE_RATE_HZ,
+            ADC1_FAST_SAMPLE_COUNT)) {
+        return false;
+    }
+
+    /* 0、2048、4095是模板值，正式测量时替换为模拟前端的实测标定码。 */
+    config.rawCalibrationEnabled = ADCCalibration_initBipolarQ15(
+        &config.rawCalibration, 0U, 2048U, 4095U);
+    config.enabledFeatures |=
+        SIGNAL_ANALYZER_FEATURE_SPECTRUM |
+        SIGNAL_ANALYZER_FEATURE_FUNDAMENTAL |
+        SIGNAL_ANALYZER_FEATURE_HARMONICS |
+        SIGNAL_ANALYZER_FEATURE_THD;
+    config.windowType = SIGNAL_ANALYZER_WINDOW_HANN;
+    config.minimumFrequencyMilliHz = 100U * 1000U;
+    config.maximumFrequencyMilliHz =
+        (uint64_t)ADC1_ANALYZER_SAMPLE_RATE_HZ * 500U;
+
+    gSignalAnalyzerStatus = SignalAnalyzer_init(
+        &gSignalAnalyzer, &config, &gSignalAnalyzerWorkspace);
+    return gSignalAnalyzerStatus == SIGNAL_ANALYZER_STATUS_OK;
+}
+
+static void Main_analyzeADC1Block(
+    const uint16_t *samples, uint16_t sampleCount)
+{
+    uint32_t remaining = sampleCount;
+
+    while (remaining != 0U) {
+        uint32_t consumed = 0U;
+
+        gSignalAnalyzerStatus = SignalAnalyzer_pushRawADC(
+            &gSignalAnalyzer, samples, remaining, 1U,
+            &consumed, &gSignalAnalyzerResult);
+        samples += consumed;
+        remaining -= consumed;
+
+        if ((gSignalAnalyzerStatus != SIGNAL_ANALYZER_STATUS_RESULT_READY) &&
+            (gSignalAnalyzerStatus != SIGNAL_ANALYZER_STATUS_NEED_MORE_DATA)) {
+            break;
+        }
+        if (consumed == 0U) {
+            break;
+        }
+    }
+}
+#endif
+
+#if ENABLE_DAC_WAVEFORM
+/* 8点方波：前4点低电平，后4点高电平 */
+static const uint16_t gDACWaveTable[8] = {
+    512U, 512U, 512U, 512U,
+    3584U, 3584U, 3584U, 3584U
+};
+#endif
 
 int main(void)
 {
-    const ADCMulti_Frame *frames;
-    uint16_t frameCount;
 
     /* 外设和驱动只需在上电后初始化一次。 */
     SYSCFG_DL_init();
+
+    /* SysConfig预配置了DAC FIFO，先统一进入安全的0码停止状态。 */
+    DACOutput_init();
+
+#if ENABLE_ANY_SPWM
+    /* SPWM初始化会停止TIMA0，并把PA0、PA1先置为50%中点。 */
     SPWM_init();
-    ADCMulti_init();
+#endif
+
+#if ENABLE_LCD
     LCDPanel_init();
     LCD8080_clear(LCD_COLOR_BLACK);
+    // LCDText_drawAsciiString(
+    // 40U, 40U,
+    // "LCD OK\nADC0 WAITING...",
+    // LCD_COLOR_WHITE,
+    // LCD_COLOR_BLUE,
+    // 3U,
+    // 0U);
+#endif
 
-    /* 默认 10 kframe/s，便于边采集边刷新 LCD；需要时可提高到 100 k。 */
-    if (!ADCMulti_start(ADC_MULTI_DEFAULT_RATE_HZ)) {
-        ADCMultiVisualization_drawError("ADC START FAILED");
+#if ENABLE_ADC1_ANALYZER
+    gSignalAnalyzerReady = Main_initSignalAnalyzer();
+    if (!gSignalAnalyzerReady) {
+#if ENABLE_LCD
+        ADCMultiVisualization_drawError("ANALYZER INIT FAILED");
+#endif
     }
+#endif
+
+#if ENABLE_ADC0_MULTI
+    ADCMulti_init();
+    gADC0Started = ADCMulti_start(ADC0_FRAME_RATE_HZ);
+    if (!gADC0Started) {
+#if ENABLE_LCD
+        ADCMultiVisualization_drawError("ADC START FAILED");
+#endif
+    }
+#endif
+
+#if ENABLE_ADC1_FAST
+    ADC1Fast_init();
+    gADC1Started = ADC1Fast_start();
+    if (!gADC1Started) {
+#if ENABLE_LCD
+        ADCMultiVisualization_drawError("ADC1 START FAILED");
+#endif
+    }
+#endif
+
+#if ENABLE_DAC_DC
+    /* PA15输出固定DAC码；可改用DACOutput_setMilliVolts()。 */
+    (void)DACOutput_setCode(DAC_DC_OUTPUT_CODE);
+#elif ENABLE_DAC_WAVEFORM
+    /* PA15使用DMA_CH2循环输出示例三角波。 */
+    (void)DACOutput_startWaveform(gDACWaveTable,
+        (uint16_t)(sizeof(gDACWaveTable) / sizeof(gDACWaveTable[0])),
+        DAC_OUTPUT_RATE_8_KHZ);
+#endif
+
+#if ENABLE_FIXED_PWM_CH0
+    PWMOutput_setChannel0Duty(FIXED_PWM_CH0_DUTY_PERMILLE);
+#endif
+#if ENABLE_FIXED_PWM_CH1
+    PWMOutput_setChannel1Duty(FIXED_PWM_CH1_DUTY_PERMILLE);
+#endif
+
+#if ENABLE_SPWM_CH0
+    SPWM_set(SPWM_CHANNEL_0, 1000U, 800U, 0U);
+    SPWM_start(SPWM_CHANNEL_0);
+#endif
+#if ENABLE_SPWM_CH1
+    SPWM_set(SPWM_CHANNEL_1, 2000U, 600U, 90U);
+    SPWM_start(SPWM_CHANNEL_1);
+#endif
+
+#if ENABLE_ANY_FIXED_PWM && !ENABLE_ANY_SPWM
+    /* 只有固定PWM时没有SPWM_start()帮忙启动TIMA0，需要在此显式启动。 */
+    DL_TimerA_startCounter(PWM_0_INST);
+#endif
 
     while (1) {
+#if ENABLE_ADC0_MULTI
         /*
-         * 非阻塞地取得已经采满的一块缓冲区。DMA 会同时写另一块，
-         * LCD 刷新结束后必须及时释放当前缓冲区。
+         * ADC0四通道：非阻塞取得DMA块。复制最近帧后，可以在此加入
+         * 功率、效率、纹波或四通道分析，再及时释放驱动缓冲区。
          */
-        if (ADCMulti_getReadyBuffer(&frames, &frameCount)) {
-            ADCMultiVisualization_draw(frames, frameCount,
+        if (gADC0Started &&
+            ADCMulti_getReadyBuffer(&gADC0Frames, &gADC0FrameCount)) {
+            if (gADC0FrameCount != 0U) {
+                gADC0LatestFrame = gADC0Frames[gADC0FrameCount - 1U];
+            }
+#if ENABLE_LCD
+            ADCMultiVisualization_draw(gADC0Frames, gADC0FrameCount,
                 ADCMulti_getActualFrameRate(),
                 ADCMulti_getOverrunCount());
-            ADCMulti_releaseBuffer(frames);
+#endif
+            ADCMulti_releaseBuffer(gADC0Frames);
+            gADC0Frames = 0;
         }
+#endif
+
+#if ENABLE_ADC1_FAST
+        /*
+         * ADC1高速单通道：必须在releaseBuffer()之前完成算法处理或复制。
+         * 不要在每个高速数据块到达时进行全屏LCD刷新。
+         */
+        if (gADC1Started &&
+            ADC1Fast_getReadyBuffer(&gADC1Samples, &gADC1SampleCount)) {
+            if (gADC1SampleCount != 0U) {
+                gADC1LatestSample = gADC1Samples[gADC1SampleCount - 1U];
+            }
+#if ENABLE_ADC1_ANALYZER
+            if (gSignalAnalyzerReady) {
+                Main_analyzeADC1Block(gADC1Samples, gADC1SampleCount);
+            }
+            /* RESULT_READY时可读取gSignalAnalyzerResult中的测量结果。 */
+#endif
+            ADC1Fast_releaseBuffer(gADC1Samples);
+            gADC1Samples = 0;
+        }
+#endif
+
+#if !ENABLE_ADC0_MULTI && !ENABLE_ADC1_FAST
+        /* 没有连续采集任务时进入休眠，等待已启用的外设中断。 */
+        __WFI();
+#endif
     }
 }

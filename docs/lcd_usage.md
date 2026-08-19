@@ -49,7 +49,7 @@ complete pixel using one masked GPIO port operation.
 | CS | PA12 | 51 | Lower-left header, row 3 right |
 | RS / DC | PA13 | 52 | Lower-left header, row 4 left |
 | RST | PA14 | 53 | Lower-left header, row 4 right |
-| BL | PA15 | 54 | Lower-left header, row 5 left |
+| BL | PB16 | 50 | Lower-left header, row 3 left; PA15 is DAC0_OUT |
 | VCC | 3V3 | - | Lower-left header, last row right |
 | GND | GND | - | Lower-left header, last row left |
 

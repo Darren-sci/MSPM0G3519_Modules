@@ -27,7 +27,7 @@ void LCD8080_initBus(void)
     DL_GPIO_setPins(BOARD_LCD_CTRL_PORT,
         BOARD_LCD_WR_PIN | BOARD_LCD_RD_PIN | BOARD_LCD_CS_PIN |
         BOARD_LCD_RS_PIN | BOARD_LCD_RST_PIN);
-    DL_GPIO_clearPins(BOARD_LCD_CTRL_PORT, BOARD_LCD_BL_PIN);
+    DL_GPIO_clearPins(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN);
 
     /* The display is the only device on this parallel bus. */
     DL_GPIO_clearPins(BOARD_LCD_CTRL_PORT, BOARD_LCD_CS_PIN);
@@ -44,9 +44,9 @@ void LCD8080_hardwareReset(void)
 void LCD8080_setBacklight(uint8_t enabled)
 {
     if (enabled != 0U) {
-        DL_GPIO_setPins(BOARD_LCD_CTRL_PORT, BOARD_LCD_BL_PIN);
+        DL_GPIO_setPins(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN);
     } else {
-        DL_GPIO_clearPins(BOARD_LCD_CTRL_PORT, BOARD_LCD_BL_PIN);
+        DL_GPIO_clearPins(BOARD_LCD_BL_PORT, BOARD_LCD_BL_PIN);
     }
 }
 

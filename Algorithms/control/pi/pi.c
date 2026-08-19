@@ -1,5 +1,6 @@
 #include "pi.h"
 #include <limits.h>
+#include <stddef.h>
 
 static int64_t clamp64(int64_t x, int64_t lo, int64_t hi) {
     return (x < lo) ? lo : ((x > hi) ? hi : x);

@@ -17,6 +17,7 @@
 
 ```c
 #include "Algorithms/control/pid/pid.h"
+#include "Drivers/dac_output.h"
 
 static PID_Controller loop;
 static const PID_Config cfg = {
@@ -41,7 +42,7 @@ void loop_init(void) {
 void loop_tick(int32_t reference, int32_t feedback) {
     PID_Result result;
     if (PID_update(&loop, reference, feedback, &result)) {
-        DAC_writeCode((uint16_t)result.output);
+        (void)DACOutput_setCode((uint16_t)result.output);
     }
 }
 ```

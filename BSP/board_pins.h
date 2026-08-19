@@ -14,6 +14,7 @@
 #define BOARD_LCD_CS_PIN          LCD_CTRL_CS_PIN
 #define BOARD_LCD_RS_PIN          LCD_CTRL_RS_PIN
 #define BOARD_LCD_RST_PIN         LCD_CTRL_RST_PIN
-#define BOARD_LCD_BL_PIN          LCD_CTRL_BL_PIN
+#define BOARD_LCD_BL_PORT         LCD_BACKLIGHT_PORT
+#define BOARD_LCD_BL_PIN          LCD_BACKLIGHT_BL_PIN
 
 #endif

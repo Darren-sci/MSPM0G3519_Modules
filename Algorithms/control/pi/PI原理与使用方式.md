@@ -18,6 +18,7 @@
 
 ```c
 #include "Algorithms/control/pi/pi.h"
+#include "Drivers/dac_output.h"
 
 static PI_Controller voltageLoop;
 static const PI_Config cfg = {
@@ -41,7 +42,7 @@ void control_init(void) {
 void control_tick(int32_t reference, int32_t adcValue) {
     PI_Result info;
     if (PI_update(&voltageLoop, reference, adcValue, &info)) {
-        DAC_writeCode((uint16_t)info.output);
+        (void)DACOutput_setCode((uint16_t)info.output);
         /* info.outputLimited 可用于故障/饱和指示 */
     }
 }
