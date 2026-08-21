@@ -80,7 +80,7 @@ typedef struct {
  * 统一接口使用的静态工作区。
  *
  * 应定义为 static 或全局对象，不要作为普通局部变量放到较小的任务栈中。
- * samplesQ15 在完成时域测量后会被原地加窗；下一帧会覆盖旧数据。
+ * samplesQ15 在完成时域测量后会被原地去直流并加窗；下一帧会覆盖旧数据。
  */
 typedef struct {
     int16_t samplesQ15[SIGNAL_ANALYZER_MAX_LENGTH];

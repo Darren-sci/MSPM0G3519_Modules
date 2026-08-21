@@ -267,7 +267,15 @@ static bool SignalAnalyzer_analyzeSpectrum(
         (features & (SIGNAL_ANALYZER_FEATURE_HARMONICS |
                      SIGNAL_ANALYZER_FEATURE_THD)) != 0U;
 
-    if (!SignalAnalyzer_applyWindow(analyzer) ||
+    /*
+     * 时域指标已经使用原始校准数据计算完毕。FFT前在同一工作缓冲区中
+     * 去除本帧均值，避免直流偏置经过窗函数后泄漏到第1个频点并被误判
+     * 为基波；随后再执行加窗和FFT。
+     */
+    if (!DCRemoval_processInt16(workspace->samplesQ15,
+            workspace->samplesQ15,
+            analyzer->config.analysisLength, 0) ||
+        !SignalAnalyzer_applyWindow(analyzer) ||
         !FFT_executeReal(&analyzer->fftPlan, workspace->samplesQ15,
             workspace->fftData, &result->fftInfo)) {
         return false;

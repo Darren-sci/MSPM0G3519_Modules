@@ -19,6 +19,8 @@ const GPIO2  = GPIO.addInstance();
 const GPIO3  = GPIO.addInstance();
 const GPIO4  = GPIO.addInstance();
 const GPIO5  = GPIO.addInstance();
+const I2C    = scripting.addModule("/ti/driverlib/I2C", {}, false);
+const I2C1   = I2C.addInstance();
 const PWM    = scripting.addModule("/ti/driverlib/PWM", {}, false);
 const PWM1   = PWM.addInstance();
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
@@ -110,6 +112,20 @@ DAC12.DMA_CHANNEL.dstLength          = "HALF_WORD";
 DAC12.DMA_CHANNEL.peripheral.$assign = "DMA_CH2";
 
 const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
+
+/*
+ * 0.96英寸SSD1315 OLED：硬件I2C0，PA10为SDA，PA11为SCL。
+ * OLED模块使用7位地址0x3C；地址由驱动发送，不需要写入SysConfig。
+ */
+I2C1.$name                       = "OLED_I2C";
+I2C1.basicEnableController       = true;
+I2C1.basicControllerBusSpeed     = 400000;
+I2C1.advAnalogGlitchFilter       = "DISABLED";
+I2C1.peripheral.$assign          = "I2C0";
+I2C1.peripheral.sdaPin.$assign   = "PA10";
+I2C1.peripheral.sclPin.$assign   = "PA11";
+I2C1.sdaPinConfig.$name          = "OLED_I2C_SDA_PIN_CONFIG";
+I2C1.sclPinConfig.$name          = "OLED_I2C_SCL_PIN_CONFIG";
 
 GPIO1.$name                           = "LCD_DATA";
 GPIO1.associatedPins.create(16);
