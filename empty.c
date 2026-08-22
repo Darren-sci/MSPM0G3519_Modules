@@ -41,6 +41,7 @@
 #include "Drivers/oled_ssd1315.h"
 #include "Drivers/pwm_output.h"
 #include "Drivers/spwm.h"
+#include "Drivers/system_tick.h"
 #include "Algorithms/analysis_pipeline/signal_analyzer.h"
 #include "Graphics/adc1_fast_visualization.h"
 #include "Graphics/adc_multi_visualization.h"
@@ -83,6 +84,9 @@
 #ifndef ENABLE_SPWM_CH1
 #define ENABLE_SPWM_CH1               (0)
 #endif
+#ifndef ENABLE_STATE_MACHINE
+#define ENABLE_STATE_MACHINE           (0)
+#endif
 
 /* 各模块常用参数集中放在这里，换题时不必进入驱动内部修改。 */
 #define ADC0_FRAME_RATE_HZ            (10000U)
@@ -95,6 +99,8 @@
 #define DAC_DC_OUTPUT_CODE            (3072U)
 #define FIXED_PWM_CH0_DUTY_PERMILLE   (300U)
 #define FIXED_PWM_CH1_DUTY_PERMILLE   (600U)
+/* 状态机任务周期，单位为毫秒；仅在 ENABLE_STATE_MACHINE 为 1 时生效。 */
+#define STATE_MACHINE_PERIOD_MS        (10U)
 
 /* 同一个通道不能同时由固定PWM和SPWM控制。 */
 #if ENABLE_FIXED_PWM_CH0 && ENABLE_SPWM_CH0
@@ -383,11 +389,21 @@ static const uint16_t gDACWaveTable[8] = {
 };
 #endif
 
+#if ENABLE_STATE_MACHINE
+/* 每个周期任务都要保存自己独立的上次执行时间。 */
+static uint32_t gStateMachineLastTimeMs;
+#endif
+
 int main(void)
 {
 
     /* 外设和驱动只需在上电后初始化一次。 */
     SYSCFG_DL_init();
+
+#if ENABLE_STATE_MACHINE
+    /* TIMG7 已由 SysConfig 配置为 1 ms 周期，这里只需启动一次。 */
+    SystemTick_start();
+#endif
 
     /* SysConfig预配置了DAC FIFO，先统一进入安全的0码停止状态。 */
     DACOutput_init();
@@ -481,6 +497,13 @@ int main(void)
 #endif
 
     while (1) {
+#if ENABLE_STATE_MACHINE
+        if (SystemTick_isDue(
+                &gStateMachineLastTimeMs, STATE_MACHINE_PERIOD_MS)) {
+            /* 在这里编写需要按固定周期反复执行的状态机代码。 */
+        }
+#endif
+
 #if ENABLE_LCD && ENABLE_ADC1_FAST && ENABLE_ADC1_ANALYZER
         if (Key_wasClicked(KEY_1)) {
             gADC1Page = MAIN_ADC1_PAGE_SCOPE;

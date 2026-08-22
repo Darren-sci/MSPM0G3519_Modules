@@ -26,6 +26,7 @@ const PWM1   = PWM.addInstance();
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
 const TIMER  = scripting.addModule("/ti/driverlib/TIMER", {}, false);
 const TIMER1 = TIMER.addInstance();
+const TIMER2 = TIMER.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -288,6 +289,16 @@ TIMER1.timerPeriod                 = "10 us";
 TIMER1.event1PublisherChannel      = 1;
 TIMER1.event1ControllerInterruptEn = ["ZERO_EVENT"];
 TIMER1.peripheral.$assign          = "TIMG0";
+
+/*
+ * 1 ms 系统节拍：只产生周期中断，不输出引脚，也不使用 DMA。
+ * 主程序可基于该毫秒时间运行状态机和其他低速周期任务。
+ */
+TIMER2.$name              = "SYSTEM_TICK";
+TIMER2.timerMode          = "PERIODIC";
+TIMER2.timerPeriod        = "1 ms";
+TIMER2.interrupts         = ["ZERO"];
+TIMER2.peripheral.$assign = "TIMG7";
 
 SYSCTL.forceDefaultClkConfig = true;
 SYSCTL.clockTreeEn           = true;
